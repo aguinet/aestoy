@@ -11,6 +11,19 @@ namespace aestoy {
 
 namespace {
 
+template <class T, size_t N>
+std::array<T, N>& operator^=(std::array<T,N>& A, std::array<T,N> const& B)
+{
+  if (&A == &B) {
+    A.fill(0);
+    return A;
+  }
+  for (size_t i = 0; i < N; ++i) {
+    A[i] ^= B[i];
+  }
+  return A;
+}
+
 uint32_t load_le(uint8_t const* Ptr)
 {
   uint32_t Ret;
@@ -234,9 +247,8 @@ void AESKeyExpand(AESCtx& Ctx, uint8_t const* Key)
     }
 
     auto const& Prev = *GetRksBlock(RKeys, BI-4);
-    for (size_t i = 0; i < sizeof(Tmp); ++i) {
-      Tmp[i] ^= Prev[i];
-    }
+    Tmp ^= Prev;
+
     *GetRksBlock(RKeys, BI) = Tmp;
   }
 }
@@ -275,9 +287,7 @@ void AESKeyInvertExpand(uint8_t* Key, uint8_t const* RndKey, const size_t Rnd)
     }
 
     auto const& Next = *GetRksBlock(RKeys, BI+4);
-    for (size_t i = 0; i < sizeof(Tmp); ++i) {
-      Tmp[i] ^= Next[i];
-    }
+    Tmp ^= Next;
 
     *GetRksBlock(RKeys, BI) = Tmp;
   }
