@@ -56,6 +56,12 @@ using MixC1 = MixCIdx< 4, 9,14, 3>;
 using MixC2 = MixCIdx< 8,13, 2, 7>;
 using MixC3 = MixCIdx<12, 1, 6,11>;
 
+static constexpr std::array<uint8_t, 16> SR = {
+  MixC3::Idx3, MixC3::Idx2, MixC3::Idx1, MixC3::Idx0,
+  MixC2::Idx3, MixC2::Idx2, MixC2::Idx1, MixC2::Idx0,
+  MixC1::Idx3, MixC1::Idx2, MixC1::Idx1, MixC1::Idx0,
+  MixC0::Idx3, MixC0::Idx2, MixC0::Idx1, MixC0::Idx0};
+
 template <class MixC>
 uint32_t SRSBMixC(uint8_t const* S)
 {
@@ -116,13 +122,6 @@ Vec16 SRSBMixC_all(Vec16 S)
   S3 = vec_gather(&RJD_Te3[0], S3);
 
   return xor_(xor_(S0, S1), xor_(S2, S3));
-
-#if 0
-  return RJD_Te[S[MixC::Idx0]] ^
-         rol<8>(RJD_Te[S[MixC::Idx1]]) ^
-         rol<16>(RJD_Te[S[MixC::Idx2]]) ^
-         rol<24>(RJD_Te[S[MixC::Idx3]]);
-#endif
 }
 
 void dump_state(Vec16 V) {
@@ -139,25 +138,26 @@ void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 {
   __m128i State = vec_loadu(In);
   State = xor_(State, vec_loadu(C.Keys[0]));
+#ifndef NDEBUG
   dump_state(State);
+#endif
 
   for (size_t R = 1; R < 10; ++R) {
     State = SRSBMixC_all(State);
     State = xor_(State, vec_loadu(C.Keys[R]));
+#ifndef NDEBUG
     dump_state(State);
+#endif
   }
 
-  // TODO: make this better!
-  State = vec_shuffle_u8(State, vec_set({
-    MixC3::Idx3, MixC3::Idx2, MixC3::Idx1, MixC3::Idx0,
-    MixC2::Idx3, MixC2::Idx2, MixC2::Idx1, MixC2::Idx0,
-    MixC1::Idx3, MixC1::Idx2, MixC1::Idx1, MixC1::Idx0,
-    MixC0::Idx3, MixC0::Idx2, MixC0::Idx1, MixC0::Idx0}));
-  vec_storeu(Out, State);
+  // TODO: make this cleaner!
+  State = vec_shuffle_u8(State, vec_set(SR));
+  alignas(__m128i) uint8_t Tmp[16];
+  vec_store_(Tmp, State);
   for (size_t I = 0; I < 16; ++I) {
-    Out[I] = RJD_SBOX[Out[I]];
+    Tmp[I] = RJD_SBOX[Tmp[I]];
   }
-  State = xor_(vec_loadu(Out), vec_loadu(C.Keys[10]));
+  State = xor_(vec_load(Tmp), vec_loadu(C.Keys[10]));
   vec_storeu(Out, State);
 }
 
@@ -176,7 +176,9 @@ void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 
   memcpy(&State[0], In, sizeof(State));
   State ^= C.Keys[0];
+#ifndef NDEBUG
   dump_state(State);
+#endif
 
   for (size_t R = 1; R < 10; ++R) {
     auto CurState = State;
@@ -186,7 +188,9 @@ void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
     storeu_le<uint32_t>(&State[8],  SRSBMixC<MixC2>(S));
     storeu_le<uint32_t>(&State[12], SRSBMixC<MixC3>(S));
     State ^= C.Keys[R];
+#ifndef NDEBUG
     dump_state(State);
+#endif
   }
 
   // Last round is only sub bytes and shiftrows
