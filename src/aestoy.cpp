@@ -6,6 +6,10 @@
 
 #include <aestoy/aestoy.h>
 #include "aes_csts.h"
+#include "intmem.h"
+#include "vec.h"
+
+using namespace intmem;
 
 namespace aestoy {
 
@@ -24,98 +28,11 @@ std::array<T, N>& operator^=(std::array<T,N>& A, std::array<T,N> const& B)
   return A;
 }
 
-uint32_t load_le(uint8_t const* Ptr)
+using RkBlock = std::array<uint8_t, 4>;
+RkBlock* GetRksBlock(RoundKey* RKeys, size_t n)
 {
-  uint32_t Ret;
-  memcpy(&Ret, Ptr, sizeof(uint32_t));
-#ifdef __BIG_ENDIAN__
-  Ret = __builtin_bswap32(Ret);
-#endif
-  return Ret;
-}
-
-void store_le(uint8_t* Ptr, uint32_t const V)
-{
-#ifdef __BIG_ENDIAN__
-  V = __builtin_bswap32(V);
-#endif
-  memcpy(Ptr, &V, sizeof(uint32_t));
-}
-
-struct State
-{
-  static constexpr size_t Nb = 4;
-  static constexpr size_t BS = 4*Nb;
-
-  uint8_t* column(size_t i)
-  {
-    assert(i < 4);
-    return &state_[i*Nb];
-  }
-
-  void set_column(size_t i, uint32_t v)
-  {
-    store_le(column(i), v);
-  }
-
-  uint8_t* begin() { return std::begin(state_); }
-  uint8_t* end() { return std::end(state_); }
-
-  uint8_t const* begin() const { return std::begin(state_); }
-  uint8_t const* end() const { return std::end(state_); }
-
-  uint8_t& at(size_t i, size_t j)
-  {
-    assert(i < 4);
-    assert(j < 4);
-    return state_[i+j*4];
-  }
-
-  uint8_t at(size_t i, size_t j) const
-  {
-    assert(i < 4);
-    assert(j < 4);
-    return state_[i+j*4];
-  }
-
-  template <size_t by>
-  void shift_row(size_t i)
-  {
-    if ((by == 0) || (by == Nb)) {
-      return;
-    }
-    uint8_t srow[Nb];
-    for (size_t j = 0; j < Nb; j++) {
-      srow[j] = at(i, (j+by)%Nb);
-    }
-    for (size_t j = 0; j < Nb; j++) {
-      at(i, j) = srow[j];
-    }
-  }
-
-  uint8_t& operator[](size_t const i)
-  {
-    return state_[i];
-  }
-
-  uint8_t operator[](size_t const i) const
-  {
-    return state_[i];
-  }
-
-  std::array<uint8_t, BS> state_;
-};
-
-template <size_t N, class T>
-__attribute__((always_inline)) T rol(T const v)
-{
-  return (v << N)|(v>>(sizeof(T)*8-N));
-}
-
-template <size_t N, class T>
-__attribute__((always_inline)) T ror(T const v)
-{
-  return (v >> N)|(v<<(sizeof(T)*8-N));
+  size_t idx = n*4;
+  return (RkBlock*) &RKeys[idx/16][idx%16];
 }
 
 template <class Container>
@@ -126,131 +43,191 @@ void ApplySB(Container& C)
   }
 }
 
-template <class Container>
-void ApplyInvSB(Container& C)
+template <size_t Idx0_, size_t Idx1_, size_t Idx2_, size_t Idx3_>
+struct MixCIdx {
+  static constexpr size_t Idx0 = Idx0_;
+  static constexpr size_t Idx1 = Idx1_;
+  static constexpr size_t Idx2 = Idx2_;
+  static constexpr size_t Idx3 = Idx3_;
+};
+
+using MixC0 = MixCIdx< 0, 5,10,15>;
+using MixC1 = MixCIdx< 4, 9,14, 3>;
+using MixC2 = MixCIdx< 8,13, 2, 7>;
+using MixC3 = MixCIdx<12, 1, 6,11>;
+
+template <class MixC>
+uint32_t SRSBMixC(uint8_t const* S)
 {
-  for (uint8_t& V: C) {
-    V = RJD_SBOX_INV[V];
-  }
+  return RJD_Te0[S[MixC::Idx0]] ^
+         rol<8>(RJD_Te0[S[MixC::Idx1]]) ^
+         rol<16>(RJD_Te0[S[MixC::Idx2]]) ^
+         rol<24>(RJD_Te0[S[MixC::Idx3]]);
 }
 
-void SubBytes(State& S) {
-  ApplySB(S);
-}
-
-void InvSubBytes(State& S) {
-  ApplyInvSB(S);
-}
-
-void AddRoundKey(State& S, RoundKey const& K) {
-  for (size_t i = 0; i < 16; ++i) {
-    S[i] ^= K[i];
-  }
-}
-
-void ShiftRows(State& S)
+template <class MixC>
+void SRSB(uint8_t* Out, uint8_t const* S)
 {
-  S.shift_row<1>(1);
-  S.shift_row<2>(2);
-  S.shift_row<3>(3);
+  Out[0] = (RJD_Te0[S[MixC::Idx0]] >> 8) & 0xFF;
+  Out[1] = (RJD_Te0[S[MixC::Idx1]] >> 8) & 0xFF;
+  Out[2] = (RJD_Te0[S[MixC::Idx2]] >> 8) & 0xFF;
+  Out[3] = (RJD_Te0[S[MixC::Idx3]] >> 8) & 0xFF;
 }
 
-void InvShiftRows(State& S)
-{
-  S.shift_row<3>(1);
-  S.shift_row<2>(2);
-  S.shift_row<1>(3);
-}
+using AESState = std::array<uint8_t, 16>;
 
-void MixColumns(State& S)
-{
-  for(size_t i = 0; i < 4; i++) {
-    uint32_t C =
-      RJD_MC[S.at(0,i)] ^
-      rol<8>(RJD_MC[S.at(1,i)]) ^
-      rol<16>(RJD_MC[S.at(2,i)]) ^
-      rol<24>(RJD_MC[S.at(3,i)]);
-    S.set_column(i, C);
-  }
-}
-
-void InvMixColumns(State& S)
-{
-  for(size_t i = 0; i < 4; i++) {
-    uint32_t C =
-      RJD_INVMC[S.at(0,i)] ^
-      rol<8>(RJD_INVMC[S.at(1,i)]) ^
-      rol<16>(RJD_INVMC[S.at(2,i)]) ^
-      rol<24>(RJD_INVMC[S.at(3,i)]);
-    S.set_column(i, C);
-  }
-}
-
-void AESEncrypt(State& S, RoundKey const* Keys)
-{
-  AddRoundKey(S, Keys[0]);
-  for (size_t R = 1; R < NR; ++R) {
-    SubBytes(S);
-    ShiftRows(S);
-    MixColumns(S);
-    AddRoundKey(S, Keys[R]);
-  }
-  SubBytes(S);
-  ShiftRows(S);
-  AddRoundKey(S, Keys[NR]);
-}
-
-void AESDecrypt(State& S, RoundKey const* Keys)
-{
-  AddRoundKey(S, Keys[NR]);
-  InvShiftRows(S);
-  InvSubBytes(S);
-  for (size_t R = NR-1; R > 0; --R) {
-    AddRoundKey(S, Keys[R]);
-    InvMixColumns(S);
-    InvShiftRows(S);
-    InvSubBytes(S);
-  }
-  AddRoundKey(S, Keys[0]);
-}
-
-using RkBlock = std::array<uint8_t, 4>;
-RkBlock* GetRksBlock(RoundKey* RKeys, size_t n)
-{
-  size_t idx = n*4;
-  return (RkBlock*) &RKeys[idx/16][idx%16];
-}
 
 } // anonymous
 
-void AESKeyExpand(AESCtx& Ctx, uint8_t const* Key)
+#ifdef AESTOY_ENABLE_AVX2_IMPL
+namespace {
+Vec16 SRSBMixC_all(Vec16 S)
 {
-  RoundKey* RKeys = &Ctx.Keys[0];
-  memcpy(&RKeys[0], Key, sizeof(RoundKey));
-  RkBlock Tmp;
+  auto S0 = vec_shuffle_u8(S, 
+    vec_set({
+      0xFF,0xFF,0xFF,MixC3::Idx0,
+      0xFF,0xFF,0xFF,MixC2::Idx0,
+      0xFF,0xFF,0xFF,MixC1::Idx0,
+      0xFF,0xFF,0xFF,MixC0::Idx0}));
+  S0 = vec_gather(&RJD_Te0[0], S0);
 
-  // A "block" is a 4-byte stride of round keys
-  for (size_t BI = 4; BI < 4*(NR+1); ++BI) {
-    Tmp = *GetRksBlock(RKeys, BI-1);
+  auto S1 = vec_shuffle_u8(S, 
+    vec_set({
+      0xFF,0xFF,0xFF,MixC3::Idx1,
+      0xFF,0xFF,0xFF,MixC2::Idx1,
+      0xFF,0xFF,0xFF,MixC1::Idx1,
+      0xFF,0xFF,0xFF,MixC0::Idx1}));
+  S1 = vec_gather(&RJD_Te1[0], S1);
 
-    if (BI % 4 == 0) {
-      // Rotate
-      auto First = Tmp[0];
-      Tmp[0] = Tmp[1];
-      Tmp[1] = Tmp[2];
-      Tmp[2] = Tmp[3];
-      Tmp[3] = First;
+  auto S2 = vec_shuffle_u8(S, 
+    vec_set({
+      0xFF,0xFF,0xFF,MixC3::Idx2,
+      0xFF,0xFF,0xFF,MixC2::Idx2,
+      0xFF,0xFF,0xFF,MixC1::Idx2,
+      0xFF,0xFF,0xFF,MixC0::Idx2}));
+  S2 = vec_gather(&RJD_Te2[0], S2);
 
-      ApplySB(Tmp);
+  auto S3 = vec_shuffle_u8(S, 
+    vec_set({
+      0xFF,0xFF,0xFF,MixC3::Idx3,
+      0xFF,0xFF,0xFF,MixC2::Idx3,
+      0xFF,0xFF,0xFF,MixC1::Idx3,
+      0xFF,0xFF,0xFF,MixC0::Idx3}));
+  S3 = vec_gather(&RJD_Te3[0], S3);
 
-      Tmp[0] ^= RC_TBL[BI/4];
-    }
+  return xor_(xor_(S0, S1), xor_(S2, S3));
 
-    auto const& Prev = *GetRksBlock(RKeys, BI-4);
-    Tmp ^= Prev;
+#if 0
+  return RJD_Te[S[MixC::Idx0]] ^
+         rol<8>(RJD_Te[S[MixC::Idx1]]) ^
+         rol<16>(RJD_Te[S[MixC::Idx2]]) ^
+         rol<24>(RJD_Te[S[MixC::Idx3]]);
+#endif
+}
 
-    *GetRksBlock(RKeys, BI) = Tmp;
+void dump_state(Vec16 V) {
+  alignas(Vec16) uint8_t V_[16];
+  vec_store(V_, V);
+  for (uint8_t C: V_) {
+    printf("%02X", C);
   }
+  printf("\n");
+}
+} // anonymous
+
+void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
+{
+  __m128i State = vec_loadu(In);
+  State = xor_(State, vec_loadu(C.Keys[0]));
+  dump_state(State);
+
+  for (size_t R = 1; R < 10; ++R) {
+    State = SRSBMixC_all(State);
+    State = xor_(State, vec_loadu(C.Keys[R]));
+    dump_state(State);
+  }
+
+  // TODO: make this better!
+  State = vec_shuffle_u8(State, vec_set({
+    MixC3::Idx3, MixC3::Idx2, MixC3::Idx1, MixC3::Idx0,
+    MixC2::Idx3, MixC2::Idx2, MixC2::Idx1, MixC2::Idx0,
+    MixC1::Idx3, MixC1::Idx2, MixC1::Idx1, MixC1::Idx0,
+    MixC0::Idx3, MixC0::Idx2, MixC0::Idx1, MixC0::Idx0}));
+  vec_storeu(Out, State);
+  for (size_t I = 0; I < 16; ++I) {
+    Out[I] = RJD_SBOX[Out[I]];
+  }
+  State = xor_(vec_loadu(Out), vec_loadu(C.Keys[10]));
+  vec_storeu(Out, State);
+}
+
+#else
+namespace {
+void dump_state(AESState const& S) {
+  for (uint8_t C: S) {
+    printf("%02X", C);
+  }
+  printf("\n");
+}
+}
+void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
+{
+  alignas(uint32_t) AESState State;
+
+  memcpy(&State[0], In, sizeof(State));
+  State ^= C.Keys[0];
+  dump_state(State);
+
+  for (size_t R = 1; R < 10; ++R) {
+    auto CurState = State;
+    auto* S = &CurState[0];
+    storeu_le<uint32_t>(&State[0],  SRSBMixC<MixC0>(S));
+    storeu_le<uint32_t>(&State[4],  SRSBMixC<MixC1>(S));
+    storeu_le<uint32_t>(&State[8],  SRSBMixC<MixC2>(S));
+    storeu_le<uint32_t>(&State[12], SRSBMixC<MixC3>(S));
+    State ^= C.Keys[R];
+    dump_state(State);
+  }
+
+  // Last round is only sub bytes and shiftrows
+  auto CurState = State;
+  auto* S = &CurState[0];
+  SRSB<MixC0>(&State[0],  S);
+  SRSB<MixC1>(&State[4],  S);
+  SRSB<MixC2>(&State[8],  S);
+  SRSB<MixC3>(&State[12], S);
+  State ^= C.Keys[10];
+  memcpy(Out, &State[0], sizeof(State));
+}
+#endif
+
+void AESDecryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
+{
+#if 0
+  AESState State;
+
+  memcpy(&State.B[0], In, sizeof(State));
+  State.B ^= C.Keys[10];
+
+  auto CurState = State.B;
+
+  InvSRSB< 0,13,10, 7>(&State.B[0], &CurState[0]);
+  InvSRSB< 4, 1,14,11>(&State.B[4], &CurState[0]);
+  InvSRSB< 8, 5, 6,15>(&State.B[8], &CurState[0]);
+  InvSRSB<12, 9, 2, 3>(&State.B[12], &CurState[0]);
+
+  for (size_t R = 9; R > 0; --R) {
+    State.B ^= C.Keys[R];
+    auto CurState = State.B;
+    store_le<uint32_t>(&State.Cols[0], SRSBMixC< 0,13,10, 7>(&CurState[0]));
+    store_le<uint32_t>(&State.Cols[1], SRSBMixC< 4, 1,14,11>(&CurState[0]));
+    store_le<uint32_t>(&State.Cols[2], SRSBMixC< 8, 5, 6,15>(&CurState[0]));
+    store_le<uint32_t>(&State.Cols[3], SRSBMixC<12, 9, 2, 3>(&CurState[0]));
+  }
+
+  State.B ^= C.Keys[0];
+  memcpy(Out, &State.B[0], sizeof(State));
+#endif
 }
 
 void AESKeyInvertExpand(uint8_t* Key, uint8_t const* RndKey, const size_t Rnd)
@@ -294,20 +271,34 @@ void AESKeyInvertExpand(uint8_t* Key, uint8_t const* RndKey, const size_t Rnd)
   memcpy(Key, &RKeys[0], sizeof(RoundKey));
 }
 
-void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
+void AESKeyExpand(AESCtx& Ctx, uint8_t const* Key)
 {
-  State S;
-  memcpy(&S, In, sizeof(S));
-  AESEncrypt(S, &C.Keys[0]);
-  memcpy(Out, &S, sizeof(S));
-}
+  RoundKey* RKeys = &Ctx.Keys[0];
+  memcpy(&RKeys[0], Key, sizeof(RoundKey));
+  RkBlock Tmp;
 
-void AESDecryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
-{
-  State S;
-  memcpy(&S, In, sizeof(State));
-  AESDecrypt(S, &C.Keys[0]);
-  memcpy(Out, &S, sizeof(State));
+  // A "block" is a 4-byte stride of round keys
+  for (size_t BI = 4; BI < 4*(NR+1); ++BI) {
+    Tmp = *GetRksBlock(RKeys, BI-1);
+
+    if (BI % 4 == 0) {
+      // Rotate
+      auto First = Tmp[0];
+      Tmp[0] = Tmp[1];
+      Tmp[1] = Tmp[2];
+      Tmp[2] = Tmp[3];
+      Tmp[3] = First;
+
+      ApplySB(Tmp);
+
+      Tmp[0] ^= RC_TBL[BI/4];
+    }
+
+    auto const& Prev = *GetRksBlock(RKeys, BI-4);
+    Tmp ^= Prev;
+
+    *GetRksBlock(RKeys, BI) = Tmp;
+  }
 }
 
 } // aestoy

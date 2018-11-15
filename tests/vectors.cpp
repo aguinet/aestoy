@@ -15,13 +15,14 @@ int test_encrypt_decrypt(uint8_t const* Key, uint8_t const* Pt, uint8_t const* C
   AESKeyExpand(Ctx, Key);
   AESEncryptBlock(Ctx, Out, Pt);
   if (memcmp(Out, CtRef, 16) != 0) {
-    return false;
+    fprintf(stderr, "Invalid encryption!\n");
+    return 1;
   }
 
   // Test decryption
   AESDecryptBlock(Ctx, Out, CtRef);
   if (memcmp(Out, Pt, BLOCK_SIZE) != 0) {
-    fprintf(stderr, "Invalid test!\n");
+    fprintf(stderr, "Invalid decryption!\n");
     return 1;
   }
   return 0;
