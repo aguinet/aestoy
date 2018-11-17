@@ -50,7 +50,7 @@ Vec16 vec_set(std::array<uint8_t, 16> V) {
 
 template <size_t I0, size_t I1, size_t I2, size_t I3>
 Vec16 vec_gather_u32(uint32_t const* BaseAddr, Vec16 V) {
-  alignas(Vec16) uint32_t Ret[] = {BaseAddr[V[I0]], BaseAddr[V[I1]], BaseAddr[V[I2]], BaseAddr[V[I3]]};
+  alignas(Vec16) uint32_t Ret[] = {BaseAddr[V[I3]], BaseAddr[V[I2]], BaseAddr[V[I1]], BaseAddr[V[I0]]};
   return vec_loadu(&Ret[0]);
 }
 

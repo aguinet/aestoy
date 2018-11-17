@@ -53,10 +53,10 @@ using MixC2 = MixCIdx< 8,13, 2, 7>;
 using MixC3 = MixCIdx<12, 1, 6,11>;
 
 static constexpr std::array<uint8_t, 16> SR = {
-  MixC3::Idx3, MixC3::Idx2, MixC3::Idx1, MixC3::Idx0,
-  MixC2::Idx3, MixC2::Idx2, MixC2::Idx1, MixC2::Idx0,
-  MixC1::Idx3, MixC1::Idx2, MixC1::Idx1, MixC1::Idx0,
-  MixC0::Idx3, MixC0::Idx2, MixC0::Idx1, MixC0::Idx0};
+  MixC0::Idx0,MixC0::Idx1,MixC0::Idx2,MixC0::Idx3,
+  MixC1::Idx0,MixC1::Idx1,MixC1::Idx2,MixC1::Idx3,  
+  MixC2::Idx0,MixC2::Idx1,MixC2::Idx2,MixC2::Idx3,  
+  MixC3::Idx0,MixC3::Idx1,MixC3::Idx2,MixC3::Idx3};  
 
 template <class MixC>
 uint32_t SRSBMixC(uint8_t const* S)
@@ -138,13 +138,13 @@ void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 #endif
   }
 
-  // TODO: make this cleaner!
+  // TODO: make this cleaner?
   alignas(Vec16) uint8_t Tmp[16];
   vec_store(Tmp, State);
   for (size_t I = 0; I < 16; ++I) {
-    Tmp[I] = RJD_SBOX[Tmp[SR[I]]];
+    Out[I] = RJD_SBOX[Tmp[SR[I]]];
   }
-  State = xor_(vec_load(Tmp), vec_loadu(C.Keys[10]));
+  State = xor_(vec_load(Out), vec_loadu(C.Keys[10]));
   vec_storeu(Out, State);
 }
 

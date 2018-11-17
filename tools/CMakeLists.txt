@@ -7,7 +7,8 @@ target_link_libraries(aes_process aestoy)
 add_executable(aes_invertkeyexpand aes_invertkeyexpand.cpp)
 target_link_libraries(aes_invertkeyexpand aestoy)
 
-#add_executable(bench bench.cpp)
-#target_link_libraries(bench aestoy benchmark pthread)
+include_directories(${BENCHMARK_INCLUDE})
+add_executable(bench bench.cpp)
+target_link_libraries(bench aestoy ${BENCHMARK_LIB})
 
 install(TARGETS aes_keyexpand aes_process aes_invertkeyexpand DESTINATION bin)
