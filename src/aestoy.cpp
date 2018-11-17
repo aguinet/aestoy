@@ -16,12 +16,8 @@ namespace aestoy {
 namespace {
 
 template <class T, size_t N>
-std::array<T, N>& operator^=(std::array<T,N>& A, std::array<T,N> const& B)
+__attribute__((always_inline)) std::array<T, N>& operator^=(std::array<T,N>& __restrict A, std::array<T,N> const& __restrict B)
 {
-  if (&A == &B) {
-    A.fill(0);
-    return A;
-  }
   for (size_t i = 0; i < N; ++i) {
     A[i] ^= B[i];
   }
@@ -85,41 +81,33 @@ using AESState = std::array<uint8_t, 16>;
 
 } // anonymous
 
-#ifdef AESTOY_ENABLE_AVX2_IMPL
+#ifdef AESTOY_ENABLE_VECTOR_IMPL
 namespace {
 Vec16 SRSBMixC_all(Vec16 S)
 {
-  auto S0 = vec_shuffle_u8(S, 
-    vec_set({
-      0xFF,0xFF,0xFF,MixC3::Idx0,
-      0xFF,0xFF,0xFF,MixC2::Idx0,
-      0xFF,0xFF,0xFF,MixC1::Idx0,
-      0xFF,0xFF,0xFF,MixC0::Idx0}));
-  S0 = vec_gather(&RJD_Te0[0], S0);
+  auto S0 = vec_gather_u32<
+    MixC3::Idx0,
+    MixC2::Idx0,
+    MixC1::Idx0,
+    MixC0::Idx0>(&RJD_Te0[0], S);
 
-  auto S1 = vec_shuffle_u8(S, 
-    vec_set({
-      0xFF,0xFF,0xFF,MixC3::Idx1,
-      0xFF,0xFF,0xFF,MixC2::Idx1,
-      0xFF,0xFF,0xFF,MixC1::Idx1,
-      0xFF,0xFF,0xFF,MixC0::Idx1}));
-  S1 = vec_gather(&RJD_Te1[0], S1);
+  auto S1 = vec_gather_u32<
+    MixC3::Idx1,
+    MixC2::Idx1,
+    MixC1::Idx1,
+    MixC0::Idx1>(&RJD_Te1[0], S);
 
-  auto S2 = vec_shuffle_u8(S, 
-    vec_set({
-      0xFF,0xFF,0xFF,MixC3::Idx2,
-      0xFF,0xFF,0xFF,MixC2::Idx2,
-      0xFF,0xFF,0xFF,MixC1::Idx2,
-      0xFF,0xFF,0xFF,MixC0::Idx2}));
-  S2 = vec_gather(&RJD_Te2[0], S2);
+  auto S2 = vec_gather_u32<
+    MixC3::Idx2,
+    MixC2::Idx2,
+    MixC1::Idx2,
+    MixC0::Idx2>(&RJD_Te2[0], S);
 
-  auto S3 = vec_shuffle_u8(S, 
-    vec_set({
-      0xFF,0xFF,0xFF,MixC3::Idx3,
-      0xFF,0xFF,0xFF,MixC2::Idx3,
-      0xFF,0xFF,0xFF,MixC1::Idx3,
-      0xFF,0xFF,0xFF,MixC0::Idx3}));
-  S3 = vec_gather(&RJD_Te3[0], S3);
+  auto S3 = vec_gather_u32<
+    MixC3::Idx3,
+    MixC2::Idx3,
+    MixC1::Idx3,
+    MixC0::Idx3>(&RJD_Te3[0], S);
 
   return xor_(xor_(S0, S1), xor_(S2, S3));
 }
@@ -136,7 +124,7 @@ void dump_state(Vec16 V) {
 
 void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 {
-  __m128i State = vec_loadu(In);
+  Vec16 State = vec_loadu(In);
   State = xor_(State, vec_loadu(C.Keys[0]));
 #ifndef NDEBUG
   dump_state(State);
@@ -151,11 +139,10 @@ void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
   }
 
   // TODO: make this cleaner!
-  State = vec_shuffle_u8(State, vec_set(SR));
-  alignas(__m128i) uint8_t Tmp[16];
-  vec_store_(Tmp, State);
+  alignas(Vec16) uint8_t Tmp[16];
+  vec_store(Tmp, State);
   for (size_t I = 0; I < 16; ++I) {
-    Tmp[I] = RJD_SBOX[Tmp[I]];
+    Tmp[I] = RJD_SBOX[Tmp[SR[I]]];
   }
   State = xor_(vec_load(Tmp), vec_loadu(C.Keys[10]));
   vec_storeu(Out, State);

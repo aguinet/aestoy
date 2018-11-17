@@ -39,10 +39,6 @@ Vec16 xor_(Vec16 A, Vec16 B) {
   return _mm_xor_si128(A,B);
 }
 
-Vec16 vec_shuffle_u8(Vec16 V, Vec16 Idxes) {
-  return _mm_shuffle_epi8(V, Idxes);
-}
-
 Vec16 vec_set(uint32_t A, uint32_t B, uint32_t C, uint32_t D) {
   return _mm_set_epi32(A, B, C, D);
 }
@@ -51,8 +47,19 @@ Vec16 vec_set(std::array<uint8_t, 16> V) {
   return _mm_set_epi8(V[0],V[1],V[2],V[3],V[4],V[5],V[6],V[7],V[8],V[9],V[10],V[11],V[12],V[13],V[14],V[15]);
 }
 
-Vec16 vec_gather(uint32_t const* BaseAddr, Vec16 Idxes) {
-  return _mm_i32gather_epi32((const int*)BaseAddr, Idxes, sizeof(uint32_t));
+template <size_t... Idxes>
+Vec16 vec_shuffle_u8(Vec16 V) {
+  return _mm_shuffle_epi8(V, _mm_set_epi8(Idxes...));
+}
+
+template <size_t I0, size_t I1, size_t I2, size_t I3>
+Vec16 vec_gather_u32(uint32_t const* BaseAddr, Vec16 V) {
+  V = vec_shuffle_u8<
+    0xFF,0xFF,0xFF,I0,
+    0xFF,0xFF,0xFF,I1,
+    0xFF,0xFF,0xFF,I2,
+    0xFF,0xFF,0xFF,I3>(V);
+  return _mm_i32gather_epi32((const int*)BaseAddr, V, sizeof(uint32_t));
 }
 
 #if 0

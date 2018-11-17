@@ -2,13 +2,11 @@
 #define AESTOY_VEC_H
 
 #ifdef __AVX2__
-#define AESTOY_ENABLE_AVX2_IMPL
+#define AESTOY_ENABLE_VECTOR_IMPL
 #include "vec_avx2.h"
+#elif defined(__ARM_NEON__)
+#define AESTOY_ENABLE_VECTOR_IMPL
+#include "vec_neon.h"
 #endif
-
-template <class... CIdxes>
-Vec16 vec_shuffle_u8(Vec16 V, CIdxes... Idxes) {
-  return __builtin_shufflevector(V, V, Idxes...);
-}
 
 #endif
