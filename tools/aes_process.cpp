@@ -38,6 +38,7 @@ int main(int argc, char** argv)
     AESEncryptBlock(Ctx, &Data[0], &Data[0]);
   }
   else {
+    AESPrepareForDecryption(Ctx);
     AESDecryptBlock(Ctx, &Data[0], &Data[0]);
   }
 

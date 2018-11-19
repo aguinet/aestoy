@@ -185,6 +185,11 @@ static constexpr T rol(T const v)
   return (v << N)|(v>>(sizeof(T)*8-N));
 }
 
+template <size_t N, class T>
+static constexpr T ror(T const v)
+{
+  return (v >> N)|(v<<(sizeof(T)*8-N));
+}
 
 template <size_t N>
 static constexpr auto te_rol(std::array<uint32_t, 256> const& Te) {
@@ -199,5 +204,10 @@ static constexpr auto RJD_Te0 = map(RJD_MC, RJD_SBOX);
 static constexpr auto RJD_Te1 = te_rol<8>(RJD_Te0);
 static constexpr auto RJD_Te2 = te_rol<16>(RJD_Te0);
 static constexpr auto RJD_Te3 = te_rol<24>(RJD_Te0);
+
+static constexpr auto RJD_Td0 = map(RJD_INVMC, RJD_SBOX_INV);
+static constexpr auto RJD_Td1 = te_rol<8>(RJD_Td0);
+static constexpr auto RJD_Td2 = te_rol<16>(RJD_Td0);
+static constexpr auto RJD_Td3 = te_rol<24>(RJD_Td0);
 
 #endif

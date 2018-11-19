@@ -40,40 +40,73 @@ void ApplySB(Container& C)
 }
 
 template <size_t Idx0_, size_t Idx1_, size_t Idx2_, size_t Idx3_>
-struct MixCIdx {
+struct SRIdx {
   static constexpr size_t Idx0 = Idx0_;
   static constexpr size_t Idx1 = Idx1_;
   static constexpr size_t Idx2 = Idx2_;
   static constexpr size_t Idx3 = Idx3_;
 };
 
-using MixC0 = MixCIdx< 0, 5,10,15>;
-using MixC1 = MixCIdx< 4, 9,14, 3>;
-using MixC2 = MixCIdx< 8,13, 2, 7>;
-using MixC3 = MixCIdx<12, 1, 6,11>;
+using SR0 = SRIdx< 0, 5,10,15>;
+using SR1 = SRIdx< 4, 9,14, 3>;
+using SR2 = SRIdx< 8,13, 2, 7>;
+using SR3 = SRIdx<12, 1, 6,11>;
+
+using InvSR0 = SRIdx< 0,13,10, 7>;
+using InvSR1 = SRIdx< 4, 1,14,11>;
+using InvSR2 = SRIdx< 8, 5, 2,15>;
+using InvSR3 = SRIdx<12, 9, 6, 3>;
+
 
 static constexpr std::array<uint8_t, 16> SR = {
-  MixC0::Idx0,MixC0::Idx1,MixC0::Idx2,MixC0::Idx3,
-  MixC1::Idx0,MixC1::Idx1,MixC1::Idx2,MixC1::Idx3,  
-  MixC2::Idx0,MixC2::Idx1,MixC2::Idx2,MixC2::Idx3,  
-  MixC3::Idx0,MixC3::Idx1,MixC3::Idx2,MixC3::Idx3};  
+  SR0::Idx0,SR0::Idx1,SR0::Idx2,SR0::Idx3,
+  SR1::Idx0,SR1::Idx1,SR1::Idx2,SR1::Idx3,  
+  SR2::Idx0,SR2::Idx1,SR2::Idx2,SR2::Idx3,  
+  SR3::Idx0,SR3::Idx1,SR3::Idx2,SR3::Idx3};  
 
-template <class MixC>
+template <class SR>
 uint32_t SRSBMixC(uint8_t const* S)
 {
-  return RJD_Te0[S[MixC::Idx0]] ^
-         rol<8>(RJD_Te0[S[MixC::Idx1]]) ^
-         rol<16>(RJD_Te0[S[MixC::Idx2]]) ^
-         rol<24>(RJD_Te0[S[MixC::Idx3]]);
+  return RJD_Te0[S[SR::Idx0]] ^
+         rol<8>(RJD_Te0[S[SR::Idx1]]) ^
+         rol<16>(RJD_Te0[S[SR::Idx2]]) ^
+         rol<24>(RJD_Te0[S[SR::Idx3]]);
 }
 
-template <class MixC>
+template <class SR>
 void SRSB(uint8_t* Out, uint8_t const* S)
 {
-  Out[0] = (RJD_Te0[S[MixC::Idx0]] >> 8) & 0xFF;
-  Out[1] = (RJD_Te0[S[MixC::Idx1]] >> 8) & 0xFF;
-  Out[2] = (RJD_Te0[S[MixC::Idx2]] >> 8) & 0xFF;
-  Out[3] = (RJD_Te0[S[MixC::Idx3]] >> 8) & 0xFF;
+  Out[0] = (RJD_Te0[S[SR::Idx0]] >> 8) & 0xFF;
+  Out[1] = (RJD_Te0[S[SR::Idx1]] >> 8) & 0xFF;
+  Out[2] = (RJD_Te0[S[SR::Idx2]] >> 8) & 0xFF;
+  Out[3] = (RJD_Te0[S[SR::Idx3]] >> 8) & 0xFF;
+}
+
+
+template <class SR>
+uint32_t InvSRSBMixC(uint8_t const* S)
+{
+  return RJD_Td0[S[SR::Idx0]] ^
+         rol<8>(RJD_Td0[S[SR::Idx1]]) ^
+         rol<16>(RJD_Td0[S[SR::Idx2]]) ^
+         rol<24>(RJD_Td0[S[SR::Idx3]]);
+}
+
+template <class SR>
+void InvSRSB(uint8_t* Out, uint8_t const* S)
+{
+  Out[0] = RJD_SBOX_INV[S[SR::Idx0]];
+  Out[1] = RJD_SBOX_INV[S[SR::Idx1]];
+  Out[2] = RJD_SBOX_INV[S[SR::Idx2]];
+  Out[3] = RJD_SBOX_INV[S[SR::Idx3]];
+}
+
+uint32_t InvMixC(uint8_t const* S)
+{
+  return RJD_INVMC[S[0]] ^
+         rol<8>(RJD_INVMC[S[1]]) ^
+         rol<16>(RJD_INVMC[S[2]]) ^
+         rol<24>(RJD_INVMC[S[3]]);
 }
 
 using AESState = std::array<uint8_t, 16>;
@@ -86,28 +119,28 @@ namespace {
 Vec16 SRSBMixC_all(Vec16 S)
 {
   auto S0 = vec_gather_u32<
-    MixC3::Idx0,
-    MixC2::Idx0,
-    MixC1::Idx0,
-    MixC0::Idx0>(&RJD_Te0[0], S);
+    SR3::Idx0,
+    SR2::Idx0,
+    SR1::Idx0,
+    SR0::Idx0>(&RJD_Te0[0], S);
 
   auto S1 = vec_gather_u32<
-    MixC3::Idx1,
-    MixC2::Idx1,
-    MixC1::Idx1,
-    MixC0::Idx1>(&RJD_Te1[0], S);
+    SR3::Idx1,
+    SR2::Idx1,
+    SR1::Idx1,
+    SR0::Idx1>(&RJD_Te1[0], S);
 
   auto S2 = vec_gather_u32<
-    MixC3::Idx2,
-    MixC2::Idx2,
-    MixC1::Idx2,
-    MixC0::Idx2>(&RJD_Te2[0], S);
+    SR3::Idx2,
+    SR2::Idx2,
+    SR1::Idx2,
+    SR0::Idx2>(&RJD_Te2[0], S);
 
   auto S3 = vec_gather_u32<
-    MixC3::Idx3,
-    MixC2::Idx3,
-    MixC1::Idx3,
-    MixC0::Idx3>(&RJD_Te3[0], S);
+    SR3::Idx3,
+    SR2::Idx3,
+    SR1::Idx3,
+    SR0::Idx3>(&RJD_Te3[0], S);
 
   return xor_(xor_(S0, S1), xor_(S2, S3));
 }
@@ -170,10 +203,10 @@ void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
   for (size_t R = 1; R < 10; ++R) {
     auto CurState = State;
     auto* S = &CurState[0];
-    storeu_le<uint32_t>(&State[0],  SRSBMixC<MixC0>(S));
-    storeu_le<uint32_t>(&State[4],  SRSBMixC<MixC1>(S));
-    storeu_le<uint32_t>(&State[8],  SRSBMixC<MixC2>(S));
-    storeu_le<uint32_t>(&State[12], SRSBMixC<MixC3>(S));
+    storeu_le<uint32_t>(&State[0],  SRSBMixC<SR0>(S));
+    storeu_le<uint32_t>(&State[4],  SRSBMixC<SR1>(S));
+    storeu_le<uint32_t>(&State[8],  SRSBMixC<SR2>(S));
+    storeu_le<uint32_t>(&State[12], SRSBMixC<SR3>(S));
     State ^= C.Keys[R];
 #ifndef NDEBUG
     dump_state(State);
@@ -183,10 +216,13 @@ void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
   // Last round is only sub bytes and shiftrows
   auto CurState = State;
   auto* S = &CurState[0];
-  SRSB<MixC0>(&State[0],  S);
-  SRSB<MixC1>(&State[4],  S);
-  SRSB<MixC2>(&State[8],  S);
-  SRSB<MixC3>(&State[12], S);
+  SRSB<SR0>(&State[0],  S);
+  SRSB<SR1>(&State[4],  S);
+  SRSB<SR2>(&State[8],  S);
+  SRSB<SR3>(&State[12], S);
+#ifndef NDEBUG
+    dump_state(State);
+#endif
   State ^= C.Keys[10];
   memcpy(Out, &State[0], sizeof(State));
 }
@@ -194,31 +230,38 @@ void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 
 void AESDecryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 {
-#if 0
-  AESState State;
+  alignas(uint32_t) AESState State;
 
-  memcpy(&State.B[0], In, sizeof(State));
-  State.B ^= C.Keys[10];
+  memcpy(&State[0], In, sizeof(State));
+  State ^= C.Keys[10];
 
-  auto CurState = State.B;
-
-  InvSRSB< 0,13,10, 7>(&State.B[0], &CurState[0]);
-  InvSRSB< 4, 1,14,11>(&State.B[4], &CurState[0]);
-  InvSRSB< 8, 5, 6,15>(&State.B[8], &CurState[0]);
-  InvSRSB<12, 9, 2, 3>(&State.B[12], &CurState[0]);
+#ifndef NDEBUG
+  dump_state(State);
+#endif
 
   for (size_t R = 9; R > 0; --R) {
-    State.B ^= C.Keys[R];
-    auto CurState = State.B;
-    store_le<uint32_t>(&State.Cols[0], SRSBMixC< 0,13,10, 7>(&CurState[0]));
-    store_le<uint32_t>(&State.Cols[1], SRSBMixC< 4, 1,14,11>(&CurState[0]));
-    store_le<uint32_t>(&State.Cols[2], SRSBMixC< 8, 5, 6,15>(&CurState[0]));
-    store_le<uint32_t>(&State.Cols[3], SRSBMixC<12, 9, 2, 3>(&CurState[0]));
+    auto CurState = State;
+    storeu_le<uint32_t>(&State[0],  InvSRSBMixC<InvSR0>(&CurState[0]));
+    storeu_le<uint32_t>(&State[4],  InvSRSBMixC<InvSR1>(&CurState[0]));
+    storeu_le<uint32_t>(&State[8],  InvSRSBMixC<InvSR2>(&CurState[0]));
+    storeu_le<uint32_t>(&State[12], InvSRSBMixC<InvSR3>(&CurState[0]));
+    State ^= C.Keys[R];
+#ifndef NDEBUG
+    dump_state(State);
+#endif
   }
 
-  State.B ^= C.Keys[0];
-  memcpy(Out, &State.B[0], sizeof(State));
+  auto CurState = State;
+  InvSRSB<InvSR0>(&State[0],  &CurState[0]);
+  InvSRSB<InvSR1>(&State[4],  &CurState[0]);
+  InvSRSB<InvSR2>(&State[8],  &CurState[0]);
+  InvSRSB<InvSR3>(&State[12], &CurState[0]);
+#ifndef NDEBUG
+  dump_state(State);
 #endif
+
+  State ^= C.Keys[0];
+  memcpy(Out, &State[0], sizeof(State));
 }
 
 void AESKeyInvertExpand(uint8_t* Key, uint8_t const* RndKey, const size_t Rnd)
@@ -289,6 +332,19 @@ void AESKeyExpand(AESCtx& Ctx, uint8_t const* Key)
     Tmp ^= Prev;
 
     *GetRksBlock(RKeys, BI) = Tmp;
+  }
+}
+
+void AESPrepareForDecryption(AESCtx& Ctx)
+{
+  // Apply InvMixColumn on the AES keys, except the first and last one.
+  // This allows to use a table-based implementation also for decryption, by
+  // tabulating SB-1 with InvMixC-1.
+  for (size_t K = 9; K > 0; --K) {
+    auto& RK = Ctx.Keys[K];
+    for (size_t i = 0; i < 16; i += 4) {
+      storeu_le<uint32_t>(&RK[i], InvMixC(&RK[i]));
+    }
   }
 }
 

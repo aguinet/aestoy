@@ -19,6 +19,7 @@ int test_encrypt_decrypt(uint8_t const* Key, uint8_t const* Pt, uint8_t const* C
     return 1;
   }
 
+  AESPrepareForDecryption(Ctx);
   // Test decryption
   AESDecryptBlock(Ctx, Out, CtRef);
   if (memcmp(Out, Pt, BLOCK_SIZE) != 0) {
