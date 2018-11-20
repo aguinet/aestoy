@@ -92,7 +92,7 @@ void dump_state(AESState const& S) {
 }
 
 template <class SR0_, class SR1_, class SR2_, class SR3_>
-void AESProcessBlock(AESCtx const& C, std::array<uint32_t, 256> const& T, uint8_t* Out, uint8_t const* In)
+void AESProcessBlock(AESCtx const& C, std::array<uint32_t, 256> const& T, std::array<uint8_t, 256> const& SB, uint8_t* Out, uint8_t const* In)
 {
   alignas(uint32_t) AESState State;
   static constexpr size_t SR_[] = {
@@ -129,7 +129,7 @@ void AESProcessBlock(AESCtx const& C, std::array<uint32_t, 256> const& T, uint8_
   auto* S = &CurState[0];
   for (size_t i = 0; i < 16; ++i) {
     const size_t InIdx = SR_[i];
-    State[i] = (T[S[InIdx]] >> 8) & 0xFF;
+    State[i] = SB[CurState[InIdx]];
   }
 #ifndef NDEBUG
   dump_state(State);
@@ -210,14 +210,14 @@ void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 #else
 void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 {
-  AESProcessBlock<SR0, SR1, SR2, SR3>(C, RJD_Te0, Out, In);
+  AESProcessBlock<SR0, SR1, SR2, SR3>(C, RJD_Te0, RJD_SBOX, Out, In);
 }
 
 #endif
 
 void AESDecryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 {
-  AESProcessBlock<InvSR0, InvSR1, InvSR2, InvSR3>(C, RJD_Td0, Out, In);
+  AESProcessBlock<InvSR0, InvSR1, InvSR2, InvSR3>(C, RJD_Td0, RJD_SBOX_INV, Out, In);
 }
 
 
