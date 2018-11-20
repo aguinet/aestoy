@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 
 #include <aestoy/aestoy.h>
 #include "aes_csts.h"
@@ -65,40 +66,12 @@ static constexpr std::array<uint8_t, 16> SR = {
   SR3::Idx0,SR3::Idx1,SR3::Idx2,SR3::Idx3};  
 
 template <class SR>
-uint32_t SRSBMixC(uint8_t const* S)
+uint32_t SRSBMixC(uint8_t const* S, std::array<uint32_t, 256> const& T)
 {
-  return RJD_Te0[S[SR::Idx0]] ^
-         rol<8>(RJD_Te0[S[SR::Idx1]]) ^
-         rol<16>(RJD_Te0[S[SR::Idx2]]) ^
-         rol<24>(RJD_Te0[S[SR::Idx3]]);
-}
-
-template <class SR>
-void SRSB(uint8_t* Out, uint8_t const* S)
-{
-  Out[0] = (RJD_Te0[S[SR::Idx0]] >> 8) & 0xFF;
-  Out[1] = (RJD_Te0[S[SR::Idx1]] >> 8) & 0xFF;
-  Out[2] = (RJD_Te0[S[SR::Idx2]] >> 8) & 0xFF;
-  Out[3] = (RJD_Te0[S[SR::Idx3]] >> 8) & 0xFF;
-}
-
-
-template <class SR>
-uint32_t InvSRSBMixC(uint8_t const* S)
-{
-  return RJD_Td0[S[SR::Idx0]] ^
-         rol<8>(RJD_Td0[S[SR::Idx1]]) ^
-         rol<16>(RJD_Td0[S[SR::Idx2]]) ^
-         rol<24>(RJD_Td0[S[SR::Idx3]]);
-}
-
-template <class SR>
-void InvSRSB(uint8_t* Out, uint8_t const* S)
-{
-  Out[0] = RJD_SBOX_INV[S[SR::Idx0]];
-  Out[1] = RJD_SBOX_INV[S[SR::Idx1]];
-  Out[2] = RJD_SBOX_INV[S[SR::Idx2]];
-  Out[3] = RJD_SBOX_INV[S[SR::Idx3]];
+  return T[S[SR::Idx0]] ^
+         rol<8>(T[S[SR::Idx1]]) ^
+         rol<16>(T[S[SR::Idx2]]) ^
+         rol<24>(T[S[SR::Idx3]]);
 }
 
 uint32_t InvMixC(uint8_t const* S)
@@ -111,6 +84,60 @@ uint32_t InvMixC(uint8_t const* S)
 
 using AESState = std::array<uint8_t, 16>;
 
+void dump_state(AESState const& S) {
+  for (uint8_t C: S) {
+    printf("%02X", C);
+  }
+  printf("\n");
+}
+
+template <class SR0_, class SR1_, class SR2_, class SR3_>
+void AESProcessBlock(AESCtx const& C, std::array<uint32_t, 256> const& T, uint8_t* Out, uint8_t const* In)
+{
+  alignas(uint32_t) AESState State;
+  static constexpr size_t SR_[] = {
+    SR0_::Idx0, SR0_::Idx1, SR0_::Idx2, SR0_::Idx3,
+    SR1_::Idx0, SR1_::Idx1, SR1_::Idx2, SR1_::Idx3,
+    SR2_::Idx0, SR2_::Idx1, SR2_::Idx2, SR2_::Idx3,
+    SR3_::Idx0, SR3_::Idx1, SR3_::Idx2, SR3_::Idx3};
+
+  memcpy(&State[0], In, sizeof(State));
+  State ^= C.Keys[0];
+#ifndef NDEBUG
+  dump_state(State);
+#endif
+
+#pragma unroll
+  for (size_t R = 1; R < 10; ++R) {
+    AESState CurState = State;
+    auto* S = &CurState[0];
+
+    storeu_le<uint32_t>(&State[0],  SRSBMixC<SR0_>(S, T));
+    storeu_le<uint32_t>(&State[4],  SRSBMixC<SR1_>(S, T));
+    storeu_le<uint32_t>(&State[8],  SRSBMixC<SR2_>(S, T));
+    storeu_le<uint32_t>(&State[12], SRSBMixC<SR3_>(S, T));
+    State ^= C.Keys[R];
+#ifndef NDEBUG
+  dump_state(State);
+#endif
+  }
+
+  // Output encoding of these rounds if "1"!
+
+  // Last round is only sub bytes and shiftrows
+  AESState CurState = State;
+  auto* S = &CurState[0];
+  for (size_t i = 0; i < 16; ++i) {
+    const size_t InIdx = SR_[i];
+    State[i] = (T[S[InIdx]] >> 8) & 0xFF;
+  }
+#ifndef NDEBUG
+  dump_state(State);
+#endif
+  State ^= C.Keys[10];
+
+  memcpy(Out, &State[0], sizeof(State));
+}
 
 } // anonymous
 
@@ -180,89 +207,19 @@ void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
   State = xor_(vec_load(Out), vec_loadu(C.Keys[10]));
   vec_storeu(Out, State);
 }
-
 #else
-namespace {
-void dump_state(AESState const& S) {
-  for (uint8_t C: S) {
-    printf("%02X", C);
-  }
-  printf("\n");
-}
-}
 void AESEncryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 {
-  alignas(uint32_t) AESState State;
-
-  memcpy(&State[0], In, sizeof(State));
-  State ^= C.Keys[0];
-#ifndef NDEBUG
-  dump_state(State);
-#endif
-
-  for (size_t R = 1; R < 10; ++R) {
-    auto CurState = State;
-    auto* S = &CurState[0];
-    storeu_le<uint32_t>(&State[0],  SRSBMixC<SR0>(S));
-    storeu_le<uint32_t>(&State[4],  SRSBMixC<SR1>(S));
-    storeu_le<uint32_t>(&State[8],  SRSBMixC<SR2>(S));
-    storeu_le<uint32_t>(&State[12], SRSBMixC<SR3>(S));
-    State ^= C.Keys[R];
-#ifndef NDEBUG
-    dump_state(State);
-#endif
-  }
-
-  // Last round is only sub bytes and shiftrows
-  auto CurState = State;
-  auto* S = &CurState[0];
-  SRSB<SR0>(&State[0],  S);
-  SRSB<SR1>(&State[4],  S);
-  SRSB<SR2>(&State[8],  S);
-  SRSB<SR3>(&State[12], S);
-#ifndef NDEBUG
-    dump_state(State);
-#endif
-  State ^= C.Keys[10];
-  memcpy(Out, &State[0], sizeof(State));
+  AESProcessBlock<SR0, SR1, SR2, SR3>(C, RJD_Te0, Out, In);
 }
+
 #endif
 
 void AESDecryptBlock(AESCtx const& C, uint8_t* Out, uint8_t const* In)
 {
-  alignas(uint32_t) AESState State;
-
-  memcpy(&State[0], In, sizeof(State));
-  State ^= C.Keys[10];
-
-#ifndef NDEBUG
-  dump_state(State);
-#endif
-
-  for (size_t R = 9; R > 0; --R) {
-    auto CurState = State;
-    storeu_le<uint32_t>(&State[0],  InvSRSBMixC<InvSR0>(&CurState[0]));
-    storeu_le<uint32_t>(&State[4],  InvSRSBMixC<InvSR1>(&CurState[0]));
-    storeu_le<uint32_t>(&State[8],  InvSRSBMixC<InvSR2>(&CurState[0]));
-    storeu_le<uint32_t>(&State[12], InvSRSBMixC<InvSR3>(&CurState[0]));
-    State ^= C.Keys[R];
-#ifndef NDEBUG
-    dump_state(State);
-#endif
-  }
-
-  auto CurState = State;
-  InvSRSB<InvSR0>(&State[0],  &CurState[0]);
-  InvSRSB<InvSR1>(&State[4],  &CurState[0]);
-  InvSRSB<InvSR2>(&State[8],  &CurState[0]);
-  InvSRSB<InvSR3>(&State[12], &CurState[0]);
-#ifndef NDEBUG
-  dump_state(State);
-#endif
-
-  State ^= C.Keys[0];
-  memcpy(Out, &State[0], sizeof(State));
+  AESProcessBlock<InvSR0, InvSR1, InvSR2, InvSR3>(C, RJD_Td0, Out, In);
 }
+
 
 void AESKeyInvertExpand(uint8_t* Key, uint8_t const* RndKey, const size_t Rnd)
 {
@@ -346,6 +303,7 @@ void AESPrepareForDecryption(AESCtx& Ctx)
       storeu_le<uint32_t>(&RK[i], InvMixC(&RK[i]));
     }
   }
+  std::reverse(std::begin(Ctx.Keys), std::end(Ctx.Keys));
 }
 
 } // aestoy
