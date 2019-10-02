@@ -25,7 +25,7 @@ int main()
     AESKeyExpand(Ctx, Key);
     for (unsigned R = 0; R <= NR; ++R) {
       AESKeyInvertExpand(Out, &Ctx.Keys[R][0], R);
-      if (memcmp(Out, Key, sizeof(Key) != 0)) {
+      if (memcmp(Out, Key, sizeof(Key)) != 0) {
         fprintf(stderr, "Invalid key inversion for key ");
         dumpHex(stderr, std::begin(Key), std::end(Key));
         fprintf(stderr, " at round %u\n", R);
