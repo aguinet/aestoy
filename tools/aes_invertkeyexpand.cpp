@@ -1,4 +1,6 @@
 #include <cstdio>
+#include <cstdlib>
+
 #include <aestoy/aestoy.h>
 #include <aestoy/tools.h>
 

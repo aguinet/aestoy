@@ -1,6 +1,7 @@
 #ifndef AESTOY_H
 #define AESTOY_H
 
+#include <cstdint>
 #include <array>
 
 namespace aestoy {
